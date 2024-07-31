@@ -12,6 +12,7 @@ from .writer import (
     ParquetSampleWriter,
     TFRecordSampleWriter,
     DummySampleWriter,
+    ArrayRecordSampleWriter,
 )
 from .reader import Reader
 from .downloader import Downloader
@@ -24,6 +25,8 @@ import fsspec
 import sys
 import signal
 import os
+import json
+import tqdm
 
 logging.getLogger("exifread").setLevel(level=logging.CRITICAL)
 
@@ -69,6 +72,51 @@ def arguments_validator(params):
                 + "img2dataset reserves these columns for its own use. Please remove them from save_additional_columns."
             )
 
+def get_dataset_stats(source_url: str = "gs://flaxdiff-datasets/webdatasets/cc12m/", output_dir: str='./') -> str:
+    """
+    Dataset descriptions are JSON files. They must have the following format;
+
+    {
+        "wids_version": 1,
+        # optional immediate shardlist
+        "shardlist": [
+            {"url": "http://example.com/file.tar", "nsamples": 1000},
+            ...
+        ],
+        # sub-datasets
+        "datasets": [
+            {"source_url": "http://example.com/dataset.json"},
+            {"shardlist": [
+                {"url": "http://example.com/file.tar", "nsamples": 1000},
+                ...
+            ]}
+            ...
+        ]
+    }
+    """
+    # First read all the json stats files in the dataset
+    fs, output_path = fsspec.core.url_to_fs(source_url, use_listings_cache=False)
+    stats_files = [i for i in fs.glob(output_path + "*.json") if 'global' not in i]
+        
+    wids_shardlist = []
+
+    for stats_file in tqdm.tqdm(stats_files):
+        with fs.open(stats_file, "r") as f:
+            try:
+                stats = json.load(f)
+                shard_name = stats_file.replace("_stats.json", ".tar")
+                nsamples = stats["successes"]
+                wids_shardlist.append({"url": shard_name, "nsamples": nsamples})
+            except Exception as err:  # pylint: disable=broad-except
+                    print(f"failed to parse stats file {stats_file}", err)
+    wids_stats = {"wids_version": 1, "shardlist": wids_shardlist}
+    
+    # Save the global stats in the source_url
+    global_stats_file = os.path.join(output_dir, "global/global_stats.json")
+    with fsspec.open(global_stats_file, "w") as f:
+        json.dump(wids_stats, f)
+        
+    return global_stats_file
 
 def download(
     url_list: str,
@@ -108,6 +156,7 @@ def download(
     max_shard_retry: int = 1,
     user_agent_token: Optional[str] = None,
     disallowed_header_directives: Optional[List[str]] = None,
+    ignore_ssl_certificate: bool = True,
 ):
     """Download is the main entry point of img2dataset, it uses multiple processes and download multiple files"""
     if disallowed_header_directives is None:
@@ -203,6 +252,8 @@ def download(
         sample_writer_class = FilesSampleWriter  # type: ignore
     elif output_format == "tfrecord":
         sample_writer_class = TFRecordSampleWriter  # type: ignore
+    elif output_format == "arrayrecord":
+        sample_writer_class = ArrayRecordSampleWriter  # type: ignore
     elif output_format == "dummy":
         sample_writer_class = DummySampleWriter  # type: ignore
     else:
@@ -247,6 +298,7 @@ def download(
         user_agent_token=user_agent_token,
         disallowed_header_directives=disallowed_header_directives,
         blurring_bbox_col=bbox_col,
+        ignore_ssl_certificate=ignore_ssl_certificate,
     )
 
     print("Starting the downloading of this file")
@@ -267,7 +319,9 @@ def download(
         max_shard_retry,
     )
     logger_process.join()
-
+    
+    _ = get_dataset_stats(output_folder, output_folder)
+    
     if not hasattr(fs, "s3"):
         fs.rm(tmp_dir, recursive=True)
 

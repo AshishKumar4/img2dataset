@@ -158,7 +158,6 @@ class StatusTableLogger(Logger):
             )
             wandb.run.log({"status": status_table})
 
-
 def write_stats(
     output_folder,
     shard_id,
@@ -189,7 +188,6 @@ def write_stats(
     json_file = f"{output_path}/{shard_name}_stats.json"
     with fs.open(json_file, "w") as f:
         json.dump(stats, f, indent=4)
-
 
 # https://docs.python.org/3/library/multiprocessing.html
 # logger process that reads stats files regularly, aggregates and send to wandb / print to terminal
@@ -234,7 +232,7 @@ class LoggerProcess(multiprocessing.context.SpawnProcess):
             try:
                 # read stats files
                 stats_files = fs.glob(output_path + "/*.json")
-
+            
                 # filter out files that have an id smaller that are already done
                 stats_files = [f for f in stats_files if int(f.split("/")[-1].split("_")[0]) not in self.done_shards]
 

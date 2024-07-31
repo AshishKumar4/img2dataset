@@ -4,6 +4,7 @@ from img2dataset.writer import (
     ParquetSampleWriter,
     DummySampleWriter,
     TFRecordSampleWriter,
+    ArrayRecordWriter,
 )
 
 import os
@@ -45,6 +46,8 @@ def test_writer(writer_type, tmp_path):
         writer_class = DummySampleWriter
     elif writer_type == "tfrecord":
         writer_class = TFRecordSampleWriter
+    elif writer_type == "arrayrecord":
+        writer_class = ArrayRecordWriter
 
     writer = writer_class(0, output_folder, True, 5, schema, "jpg")
 

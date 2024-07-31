@@ -8,7 +8,8 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 import webdataset as wds
-
+import struct
+from array_record.python.array_record_module import ArrayRecordWriter
 
 class BufferedParquetWriter:
     """Write samples to parquet files incrementally with a buffer"""
@@ -133,7 +134,46 @@ class WebDatasetSampleWriter:
         self.buffered_parquet_writer.close()
         self.tarwriter.close()
         self.tar_fd.close()
+        
+class ArrayRecordSampleWriter:
+    """ArrayRecordSampleWriter is a writer to ArrayRecord format"""
 
+    def __init__(
+        self,
+        shard_id,
+        output_folder,
+        save_caption,
+        oom_shard_count,
+        schema,
+        encode_format,
+    ):
+        self.oom_shard_count = oom_shard_count
+        self.encode_format = encode_format
+        self.save_caption = save_caption
+        shard_name = "{shard_id:0{oom_shard_count}d}".format(  # pylint: disable=consider-using-f-string
+            shard_id=shard_id, oom_shard_count=oom_shard_count
+        )
+        output_file = f"{output_folder}/{shard_name}.array_record"
+        self.writer = ArrayRecordWriter(output_file, options=f"group_size:1")
+
+        self.buffered_parquet_writer = BufferedParquetWriter(output_folder + "/" + shard_name + ".parquet", schema, 100)
+
+    def write(self, img_str, key, caption, meta):
+        """Write sample to ArrayRecord"""
+        if img_str is not None:
+            sample = {self.encode_format: img_str.tobytes()}
+            if self.save_caption:
+                sample["txt"] = caption.encode() if caption is not None else b""
+            for k, v in meta.items():
+                if isinstance(v, np.ndarray):
+                    meta[k] = v.tolist()
+            sample["meta"] = json.dumps(meta).encode()
+            self.writer.write(sample[self.encode_format])
+        self.buffered_parquet_writer.write(meta)
+
+    def close(self):
+        self.buffered_parquet_writer.close()
+        self.writer.close()
 
 class TFRecordSampleWriter:
     """TFRecordSampleWriter is a image+caption writer to TFRecord"""
@@ -291,8 +331,120 @@ class FilesSampleWriter:
 
     def close(self):
         self.buffered_parquet_writer.close()
+import struct 
 
+def pack_dict_of_byte_arrays(data_dict):
+    """
+    Pack a dictionary of byte arrays into a single byte array.
+    
+    Args:
+        data_dict (dict): Dictionary where keys are strings and values are byte arrays.
+        
+    Returns:
+        bytes: Packed byte array.
+    """
+    packed_data = bytearray()
+    
+    for key, byte_array in data_dict.items():
+        # Ensure the key is a string
+        if not isinstance(key, str):
+            raise ValueError("Keys must be strings")
+        
+        # Convert the key to bytes
+        key_bytes = key.encode('utf-8')
+        
+        # Pack the key length and key bytes
+        packed_data.extend(struct.pack('I', len(key_bytes)))
+        packed_data.extend(key_bytes)
+        
+        # Pack the byte array length and byte array
+        packed_data.extend(struct.pack('I', len(byte_array)))
+        packed_data.extend(byte_array)
+    
+    return bytes(packed_data)
 
+def unpack_dict_of_byte_arrays(packed_data):
+    """
+    Unpack a single byte array into a dictionary of byte arrays.
+    
+    Args:
+        packed_data (bytes): Packed byte array.
+        
+    Returns:
+        dict: Dictionary where keys are strings and values are byte arrays.
+    """
+    unpacked_dict = {}
+    offset = 0
+    
+    while offset < len(packed_data):
+        # Unpack the key length
+        key_length = struct.unpack_from('I', packed_data, offset)[0]
+        offset += struct.calcsize('I')
+        
+        # Unpack the key bytes and convert to string
+        key = packed_data[offset:offset+key_length].decode('utf-8')
+        offset += key_length
+        
+        # Unpack the byte array length
+        byte_array_length = struct.unpack_from('I', packed_data, offset)[0]
+        offset += struct.calcsize('I')
+        
+        # Unpack the byte array
+        byte_array = packed_data[offset:offset+byte_array_length]
+        offset += byte_array_length
+        
+        unpacked_dict[key] = byte_array
+    
+    return unpacked_dict
+
+class ArrayRecordSampleWriter:
+    """ArrayRecordSampleWriter is a writer to ArrayRecord format"""
+
+    def __init__(
+        self,
+        shard_id,
+        output_folder,
+        save_caption,
+        oom_shard_count,
+        schema,
+        encode_format,
+    ):
+        self.oom_shard_count = oom_shard_count
+        self.encode_format = encode_format
+        self.save_caption = save_caption
+        shard_name = "{shard_id:0{oom_shard_count}d}".format(  # pylint: disable=consider-using-f-string
+            shard_id=shard_id, oom_shard_count=oom_shard_count
+        )
+        self.buffered_parquet_writer = BufferedParquetWriter(output_folder + "/" + shard_name + ".parquet", schema, 100)
+        output_file = f"{output_folder}/{shard_name}.array_record"
+        self.writer = ArrayRecordWriter(output_file, options=f"group_size:1")
+        
+    def write(self, img_str, key, caption, meta):
+        """Write sample to ArrayRecord"""
+        if img_str is not None:
+            sample = {
+                "key": self._bytes_feature(key.encode()),
+                self.encode_format: self._bytes_feature(img_str),
+            }
+            if self.save_caption:
+                sample["txt"] = caption.encode() if caption is not None else b""
+            for k, v in meta.items():
+                if isinstance(v, np.ndarray):
+                    meta[k] = v.tolist()
+            sample["meta"] = json.dumps(meta).encode()
+            self.writer.write(pack_dict_of_byte_arrays(sample))
+        self.buffered_parquet_writer.write(meta)
+            
+    def _bytes_feature(self, value):
+        if value is None:
+            value = ""
+        if isinstance(value, str):
+            value = value.encode()
+        return value
+
+    def close(self):
+        self.writer.close()
+        self.buffered_parquet_writer.close()
 class DummySampleWriter:
     """Does not write"""
 

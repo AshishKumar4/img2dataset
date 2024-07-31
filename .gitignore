@@ -14,3 +14,4 @@ wandb
 .pexing
 build
 .hypothesis
+.mypy_cache
