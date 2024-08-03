@@ -6,6 +6,7 @@ import os
 import fsspec
 import numpy as np
 import pyarrow as pa
+import pyarrow.fs
 import pyarrow.parquet as pq
 import webdataset as wds
 import struct
@@ -134,46 +135,6 @@ class WebDatasetSampleWriter:
         self.buffered_parquet_writer.close()
         self.tarwriter.close()
         self.tar_fd.close()
-        
-class ArrayRecordSampleWriter:
-    """ArrayRecordSampleWriter is a writer to ArrayRecord format"""
-
-    def __init__(
-        self,
-        shard_id,
-        output_folder,
-        save_caption,
-        oom_shard_count,
-        schema,
-        encode_format,
-    ):
-        self.oom_shard_count = oom_shard_count
-        self.encode_format = encode_format
-        self.save_caption = save_caption
-        shard_name = "{shard_id:0{oom_shard_count}d}".format(  # pylint: disable=consider-using-f-string
-            shard_id=shard_id, oom_shard_count=oom_shard_count
-        )
-        output_file = f"{output_folder}/{shard_name}.array_record"
-        self.writer = ArrayRecordWriter(output_file, options=f"group_size:1")
-
-        self.buffered_parquet_writer = BufferedParquetWriter(output_folder + "/" + shard_name + ".parquet", schema, 100)
-
-    def write(self, img_str, key, caption, meta):
-        """Write sample to ArrayRecord"""
-        if img_str is not None:
-            sample = {self.encode_format: img_str.tobytes()}
-            if self.save_caption:
-                sample["txt"] = caption.encode() if caption is not None else b""
-            for k, v in meta.items():
-                if isinstance(v, np.ndarray):
-                    meta[k] = v.tolist()
-            sample["meta"] = json.dumps(meta).encode()
-            self.writer.write(sample[self.encode_format])
-        self.buffered_parquet_writer.write(meta)
-
-    def close(self):
-        self.buffered_parquet_writer.close()
-        self.writer.close()
 
 class TFRecordSampleWriter:
     """TFRecordSampleWriter is a image+caption writer to TFRecord"""
@@ -416,8 +377,9 @@ class ArrayRecordSampleWriter:
             shard_id=shard_id, oom_shard_count=oom_shard_count
         )
         self.buffered_parquet_writer = BufferedParquetWriter(output_folder + "/" + shard_name + ".parquet", schema, 100)
-        output_file = f"{output_folder}/{shard_name}.array_record"
-        self.writer = ArrayRecordWriter(output_file, options=f"group_size:1")
+        self.output_file = f"{output_folder}/{shard_name}.array_record"
+        self.tmp_file = f'/tmp/{shard_name}.array_record'
+        self.writer = ArrayRecordWriter(self.tmp_file, options=f"group_size:1")
         
     def write(self, img_str, key, caption, meta):
         """Write sample to ArrayRecord"""
@@ -445,6 +407,9 @@ class ArrayRecordSampleWriter:
     def close(self):
         self.writer.close()
         self.buffered_parquet_writer.close()
+        pyarrow.fs.copy_files(self.tmp_file, self.output_file, chunk_size=2**24)
+        os.remove(self.tmp_file)
+
 class DummySampleWriter:
     """Does not write"""
 
