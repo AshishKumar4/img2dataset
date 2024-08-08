@@ -376,9 +376,12 @@ class ArrayRecordSampleWriter:
         shard_name = "{shard_id:0{oom_shard_count}d}".format(  # pylint: disable=consider-using-f-string
             shard_id=shard_id, oom_shard_count=oom_shard_count
         )
-        self.buffered_parquet_writer = BufferedParquetWriter(output_folder + "/" + shard_name + ".parquet", schema, 100)
+        # self.buffered_parquet_writer = BufferedParquetWriter(output_folder + "/" + shard_name + ".parquet", schema, 100)
         self.output_file = f"{output_folder}/{shard_name}.array_record"
-        self.tmp_file = f'/tmp/{shard_name}.array_record'
+        if "gs:" in output_folder:
+            self.tmp_file = f'/tmp/{shard_name}.array_record'
+        else:
+            self.tmp_file = self.output_file
         self.writer = ArrayRecordWriter(self.tmp_file, options=f"group_size:1")
         
     def write(self, img_str, key, caption, meta):
@@ -395,7 +398,7 @@ class ArrayRecordSampleWriter:
                     meta[k] = v.tolist()
             sample["meta"] = json.dumps(meta).encode()
             self.writer.write(pack_dict_of_byte_arrays(sample))
-        self.buffered_parquet_writer.write(meta)
+        # self.buffered_parquet_writer.write(meta)
             
     def _bytes_feature(self, value):
         if value is None:
@@ -406,8 +409,9 @@ class ArrayRecordSampleWriter:
 
     def close(self):
         self.writer.close()
-        self.buffered_parquet_writer.close()
-        pyarrow.fs.copy_files(self.tmp_file, self.output_file, chunk_size=2**24)
+        # self.buffered_parquet_writer.close()
+        if self.tmp_file != self.output_file:
+            pyarrow.fs.copy_files(self.tmp_file, self.output_file, chunk_size=2**24)
         os.remove(self.tmp_file)
 
 class DummySampleWriter:
