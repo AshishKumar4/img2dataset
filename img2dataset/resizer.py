@@ -166,6 +166,10 @@ class Resizer:
                 # check if wrong aspect ratio
                 if max(original_height, original_width) / min(original_height, original_width) > self.max_aspect_ratio:
                     return None, None, None, None, None, "aspect ratio too large"
+                
+                # check if the variance of the image is too low
+                if np.std(img) < 1e-3:
+                    return None, None, None, None, None, "Variance too low"
 
                 # check if resizer was defined during init if needed
                 if blurring_bbox_list is not None and self.blurrer is None:
