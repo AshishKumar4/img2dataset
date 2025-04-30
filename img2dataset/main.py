@@ -141,7 +141,8 @@ def download(
     save_additional_columns: Optional[List[str]] = None,
     timeout: int = 10,
     enable_wandb: bool = False,
-    wandb_project: str = "img2dataset",
+    wandb_project: str = "mlops-datapreparation",
+    wandb_entity: Optional[str] = "umd-projects",
     oom_shard_count: int = 5,
     compute_hash: Optional[str] = "sha256",
     verify_hash: Optional[List[str]] = None,
@@ -176,7 +177,7 @@ def download(
     output_folder = make_path_absolute(output_folder)
     url_list = make_path_absolute(url_list)
 
-    logger_process = LoggerProcess(output_folder, enable_wandb, wandb_project, config_parameters)
+    logger_process = LoggerProcess(output_folder, enable_wandb, wandb_project, wandb_entity, config_parameters)
 
     tmp_path = output_folder + "/_tmp"
     fs, tmp_dir = fsspec.core.url_to_fs(tmp_path)
