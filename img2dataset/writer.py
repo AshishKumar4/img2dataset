@@ -2,6 +2,7 @@
 
 import json
 import os
+import threading
 
 import fsspec
 import numpy as np
@@ -412,8 +413,13 @@ class ArrayRecordSampleWriter:
         self.writer.close()
         # self.buffered_parquet_writer.close()
         if self.tmp_file != self.output_file:
-            pyarrow.fs.copy_files(self.tmp_file, self.output_file, chunk_size=2**24)
-            os.remove(self.tmp_file)
+            tmp = self.tmp_file
+            out = self.output_file
+            def _upload():
+                pyarrow.fs.copy_files(tmp, out, chunk_size=2**26)
+                os.remove(tmp)
+            t = threading.Thread(target=_upload, daemon=True)
+            t.start()
 
 class DummySampleWriter:
     """Does not write"""
