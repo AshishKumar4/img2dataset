@@ -379,7 +379,8 @@ class ArrayRecordSampleWriter:
         # self.buffered_parquet_writer = BufferedParquetWriter(output_folder + "/" + shard_name + ".parquet", schema, 100)
         self.output_file = f"{output_folder}/{shard_name}.array_record"
         if "gs:" in output_folder:
-            self.tmp_file = f'/tmp/{shard_name}.array_record'
+            _tmp_dir = os.environ.get('IMG2DATASET_TMP_DIR', '/tmp')
+            self.tmp_file = f'{_tmp_dir}/{shard_name}.array_record'
         else:
             self.tmp_file = self.output_file
         self.writer = ArrayRecordWriter(self.tmp_file, options=f"group_size:1")
@@ -412,7 +413,7 @@ class ArrayRecordSampleWriter:
         # self.buffered_parquet_writer.close()
         if self.tmp_file != self.output_file:
             pyarrow.fs.copy_files(self.tmp_file, self.output_file, chunk_size=2**24)
-        os.remove(self.tmp_file)
+            os.remove(self.tmp_file)
 
 class DummySampleWriter:
     """Does not write"""
